@@ -5,9 +5,13 @@ local entry_to_file = require("fzf-lua.path").entry_to_file
 local obsidian = require "obsidian"
 local search = obsidian.search
 local Path = obsidian.Path
+local Note = obsidian.Note
+
 local log = obsidian.log
 local Picker = obsidian.Picker
 local ut = require "obsidian.picker.util"
+
+local M = {}
 
 ---@param prompt_title string|?
 ---@return string|?
@@ -28,7 +32,16 @@ local function format_keymap(keymap)
   return keymap
 end
 
-local M = {}
+--- Extract display part from entry string that may contain tab-separated file path
+---@param entry_str string
+---@return string
+local function extract_display_from_line(entry_str)
+  local tab_pos = string.find(entry_str, "\t")
+  if tab_pos then
+    return string.sub(entry_str, 1, tab_pos - 1)
+  end
+  return entry_str
+end
 
 ---@param opts { callback: fun(path: string)|?, no_default_mappings: boolean|?, selection_mappings: obsidian.PickerMappingTable|? }
 local function get_path_actions(opts)
@@ -68,7 +81,9 @@ local function get_value_actions(display_to_value_map, opts)
     end
 
     local values = vim.tbl_map(function(k)
-      return display_to_value_map[k]
+      -- Extract display part if entry contains tab-separated file path
+      local display_key = extract_display_from_line(k)
+      return display_to_value_map[display_key]
     end, selected)
 
     values = vim.tbl_filter(function(v)
@@ -147,7 +162,6 @@ M.grep = function(opts)
   local dir = opts.dir and Path.new(opts.dir) or Obsidian.dir
   local cmd = table.concat(search.build_grep_cmd(), " ")
   local actions = get_path_actions {
-    -- TODO: callback for the full object
     no_default_mappings = opts.no_default_mappings,
     selection_mappings = opts.selection_mappings,
   }
@@ -184,24 +198,48 @@ M.pick = function(values, opts)
     return type(v) == "table" and v.filename ~= nil
   end)
 
-  ---@type string[]
+  for _, value in ipairs(values) do
+    if type(value) ~= "string" then
+      local file_path = value.filename or (value.value and value.value.path)
+      
+      if file_path and not value.filename then
+        value.filename = file_path
+      end
+      
+      if file_path and not value.user_data then
+        local ok, note = pcall(Note.from_file, Path.new(file_path))
+        if ok and note then
+          value.user_data = note
+        end
+      end
+    end
+  end
+
   local entries = {}
+
   for _, value in ipairs(values) do
     local display
+    local file_path
+
     if type(value) == "string" then
       display = value
       value = { user_data = value }
     else
-      display = opts.format_item and opts.format_item(value) or ut.make_display(value)
+      local display_str, _ = ut.make_display(value)
+      display = opts.format_item and opts.format_item(value) or display_str
+      file_path = value.filename or (value.user_data and value.user_data.path and tostring(value.user_data.path)) or (value.value and value.value.path)
     end
+
     if value.valid ~= false then
       display_to_value_map[display] = value
+      if file_path then
+        display = display .. "\t" .. file_path
+      end
       entries[#entries + 1] = display
     end
   end
 
   local builtin = require "fzf-lua.previewer.builtin"
-
   local MyPreviewer = builtin.buffer_or_file:extend()
 
   function MyPreviewer:new(o, _opts, fzf_win)
@@ -211,7 +249,11 @@ M.pick = function(values, opts)
   end
 
   function MyPreviewer:parse_entry(entry_str)
-    local entry = display_to_value_map[entry_str]
+    local display = extract_display_from_line(entry_str)
+    local entry = display_to_value_map[display]
+    if not entry then
+      return {}
+    end
     return {
       path = entry.filename,
       line = entry.lnum,
@@ -224,6 +266,10 @@ M.pick = function(values, opts)
     prompt = format_prompt(
       ut.build_prompt { prompt_title = opts.prompt_title, selection_mappings = opts.selection_mappings }
     ),
+    fzf_opts = file_preview and {
+      ["--delimiter"] = "\t",
+      ["--with-nth"] = "1",
+    } or nil,
     actions = get_value_actions(display_to_value_map, {
       callback = opts.callback,
       allow_multiple = opts.allow_multiple,

@@ -2,7 +2,6 @@ local M = {}
 
 local api = require "obsidian.api"
 local util = require "obsidian.util"
-local Path = require "obsidian.path"
 
 ---@param opts { prompt_title: string, query_mappings: obsidian.PickerMappingTable|?, selection_mappings: obsidian.PickerMappingTable|? }|?
 ---@return string
@@ -60,26 +59,47 @@ M.make_display = function(entry)
     end
   end
 
-  if entry.filename then
-    buf[#buf + 1] = Path.new(entry.filename):vault_relative_path()
-
-    if entry.lnum ~= nil then
-      buf[#buf + 1] = ":"
-      buf[#buf + 1] = entry.lnum
-
-      if entry.col ~= nil then
-        buf[#buf + 1] = ":"
-        buf[#buf + 1] = entry.col
-      end
-    end
-  end
+  local display_name = ""
 
   if entry.text then
-    buf[#buf + 1] = " "
-    buf[#buf + 1] = entry.text
+    display_name = entry.text
   elseif entry.user_data then
+    local note_obj = entry.user_data
+    if type(note_obj) == "table" and note_obj.aliases and #note_obj.aliases > 0 then
+      display_name = note_obj.aliases[1]
+    elseif type(note_obj) == "table" and note_obj.display_name and type(note_obj.display_name) == "function" then
+      display_name = note_obj:display_name()
+    elseif type(note_obj) == "table" and note_obj.title then
+      display_name = note_obj.title
+    elseif type(note_obj) == "table" and note_obj.id then
+      display_name = note_obj.id
+    elseif entry.display then
+      display_name = entry.display
+    else
+      display_name = tostring(note_obj)
+    end
+  elseif entry.display then
+    display_name = entry.display
+  end
+
+  if display_name ~= "" then
     buf[#buf + 1] = " "
-    buf[#buf + 1] = tostring(entry.user_data)
+    buf[#buf + 1] = display_name
+  end
+
+  -- Add tags if available
+  local tags = nil
+  if entry.user_data and type(entry.user_data) == "table" and entry.user_data.tags and #entry.user_data.tags > 0 then
+    tags = entry.user_data.tags
+  elseif entry.tags and #entry.tags > 0 then
+    tags = entry.tags
+  end
+
+  if tags then
+    local tags_str = table.concat(tags, ", ")
+    buf[#buf + 1] = " ["
+    buf[#buf + 1] = tags_str
+    buf[#buf + 1] = "]"
   end
 
   return table.concat(buf, ""), highlights

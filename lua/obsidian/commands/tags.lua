@@ -21,15 +21,15 @@ end
 local function gather_tag_picker_list(tag_locations, tags)
   ---@type obsidian.PickerEntry[]
   local entries = {}
+
   for _, tag_loc in ipairs(tag_locations) do
     for _, tag in ipairs(tags) do
       if tag_loc.tag:lower() == tag:lower() or vim.startswith(tag_loc.tag:lower(), tag:lower() .. "/") then
-        local display = string.format("%s [%s] %s", tag_loc.note:display_name(), tag_loc.line, tag_loc.text)
+        local path_str = tostring(tag_loc.path)
         entries[#entries + 1] = {
           value = { path = tag_loc.path, line = tag_loc.line, col = tag_loc.tag_start },
-          display = display,
-          ordinal = display,
-          filename = tostring(tag_loc.path),
+          user_data = tag_loc.note,
+          filename = path_str,
           lnum = tag_loc.line,
           col = tag_loc.tag_start,
         }
@@ -37,6 +37,7 @@ local function gather_tag_picker_list(tag_locations, tags)
       end
     end
   end
+  
   if vim.tbl_isempty(entries) then
     if #tags == 1 then
       log.warn "Tag not found"

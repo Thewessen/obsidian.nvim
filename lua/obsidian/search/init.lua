@@ -770,6 +770,7 @@ M.find_tags_async = function(term, callback, opts)
     if vim.startswith(tag, "#") then
       tag = string.sub(tag, 2)
     end
+
     if not path_to_tag_loc[path] then
       path_to_tag_loc[path] = {}
     end
@@ -832,24 +833,38 @@ M.find_tags_async = function(term, callback, opts)
     end
 
     local line = vim.trim(match_data.lines.text)
-    local n_matches = 0
+    local line_number_1_indexed = match_data.line_number + 1
+    local is_in_frontmatter = note.frontmatter_end_line and line_number_1_indexed <= note.frontmatter_end_line
 
-    -- check for tag in the wild of the form '#{tag}'
-    for _, match in ipairs(M.find_tags_in_string(line)) do
-      local m_start, m_end, _ = unpack(match)
-      local tag = string.sub(line, m_start + 1, m_end)
-      if string.match(tag, "^" .. M.Patterns.TagCharsRequired .. "$") then
-        add_match(tag, path, note, match_data.line_number, line, m_start, m_end)
+    if is_in_frontmatter then
+      -- In frontmatter: check if line contains a tag from note.tags
+      if note.tags ~= nil and #note.tags > 0 then
+        for _, note_tag in ipairs(note.tags) do
+          local tag = tostring(note_tag)
+          -- Check if this tag appears in the line (ripgrep already matched the pattern)
+          -- We just need to verify the tag is in note.tags
+          if string.find(line, tag, 1, true) then
+            for _, t in ipairs(terms) do
+              if string.len(t) == 0 or util.string_contains(tag, t) then
+                add_match(tag, path, note, match_data.line_number, line)
+                break
+              end
+            end
+          end
+        end
       end
-    end
-
-    -- check for tags in frontmatter
-    if n_matches == 0 and note.tags ~= nil and (vim.startswith(line, "tags:") or string.match(line, "%s*- ")) then
-      for _, tag in ipairs(note.tags) do
-        tag = tostring(tag)
-        for _, t in ipairs(terms) do
-          if string.len(t) == 0 or util.string_contains(tag, t) then
-            add_match(tag, path, note, match_data.line_number, line)
+    else
+      -- In content: check if line contains a valid tag pattern
+      for _, match in ipairs(M.find_tags_in_string(line)) do
+        local m_start, m_end, _ = unpack(match)
+        local tag = string.sub(line, m_start + 1, m_end)
+        -- Validate tag: must contain at least one letter (not just numbers)
+        if string.match(tag, "^" .. M.Patterns.TagCharsRequired .. "$") then
+          for _, t in ipairs(terms) do
+            if string.len(t) == 0 or util.string_contains(tag, t) then
+              add_match(tag, path, note, match_data.line_number, line, m_start, m_end)
+              break
+            end
           end
         end
       end
@@ -860,7 +875,7 @@ M.find_tags_async = function(term, callback, opts)
   local search_terms = {}
   for _, t in ipairs(terms) do
     if string.len(t) > 0 then
-      -- tag in the wild
+      -- tag in content (must start with #)
       search_terms[#search_terms + 1] = "#" .. M.Patterns.TagCharsOptional .. t .. M.Patterns.TagCharsOptional
       -- frontmatter tag in multiline list
       search_terms[#search_terms + 1] = "\\s*- "
@@ -871,7 +886,7 @@ M.find_tags_async = function(term, callback, opts)
       -- frontmatter tag in inline list
       search_terms[#search_terms + 1] = "tags: .*" .. M.Patterns.TagCharsOptional .. t .. M.Patterns.TagCharsOptional
     else
-      -- tag in the wild
+      -- tag in content (must start with #)
       search_terms[#search_terms + 1] = "#" .. M.Patterns.TagCharsRequired
       -- frontmatter tag in multiline list
       search_terms[#search_terms + 1] = "\\s*- " .. M.Patterns.TagCharsRequired .. "$"
