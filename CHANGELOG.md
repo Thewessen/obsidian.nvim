@@ -10,10 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `fzf` when pick files will give proper previews.
+- Github workflow will run tests in multiple neovim versions to ensure compatibility.
 
 ### Fixed
 
 - `definition` will properly follow encoded paths.
+- `rename` bug due do neovim API version difference.
+- Note refactor actions bug due do neovim API version difference.
+- `fzf` properly handles all mappings.
 
 ## [v3.14.5](https://github.com/obsidian-nvim/obsidian.nvim/releases/tag/v3.14.5) - 2025-11-13
 

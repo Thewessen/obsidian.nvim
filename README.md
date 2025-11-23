@@ -57,7 +57,7 @@ With bugs, issues and pull requests piling up, people from the community decided
 - `smart_action`, bind to `<CR>` will:
   - If cursor is on a link, follow the link.
   - If cursor is on a tag, show all notes with that tag in a picker.
-  - If cursor is on a checkbox, toggle the checkbox.
+  - If cursor is on a checkbox, toggle the checkbox, see [Checkbox.create_new](https://github.com/obsidian-nvim/obsidian.nvim/wiki/Checkbox#create-new).
   - If cursor is on a heading, cycle the fold of that heading, see [Folding](https://github.com/obsidian-nvim/obsidian.nvim/wiki/Folding) to set this up.
 - `nav_link`, bind to `[o` and `]o` will navigate cursor to next valid link in the buffer.
 
@@ -195,6 +195,7 @@ return {
   ---@module 'obsidian'
   ---@type obsidian.config
   opts = {
+    legacy_commands = false, -- this will be removed in the next major release
     workspaces = {
       {
         name = "personal",
@@ -297,6 +298,7 @@ Please read the [CONTRIBUTING](https://github.com/obsidian-nvim/obsidian.nvim/bl
     </tr>
     <tr>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/balazsmiklos85"><img src="https://avatars.githubusercontent.com/u/46478889?v=4?s=100" width="100px;" alt="Miklós Balázs"/><br /><sub><b>Miklós Balázs</b></sub></a><br /><a href="#code-balazsmiklos85" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://shortcuts.codes/"><img src="https://avatars.githubusercontent.com/u/20689156?v=4?s=100" width="100px;" alt="Clément Vannicatte"/><br /><sub><b>Clément Vannicatte</b></sub></a><br /><a href="#doc-shortcuts" title="Documentation">📖</a></td>
     </tr>
   </tbody>
 </table>
