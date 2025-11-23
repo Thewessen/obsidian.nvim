@@ -38,7 +38,8 @@ return function(data)
     prompt_title = "Templates",
     dir = templates_dir,
     no_default_mappings = true,
-    callback = function(path)
+    callback = function(path_or_entry)
+      local path = type(path_or_entry) == "table" and path_or_entry.filename or path_or_entry
       insert_template(path)
     end,
   }

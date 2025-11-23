@@ -30,7 +30,8 @@ return function(data)
     prompt_title = "Templates",
     dir = templates_dir,
     no_default_mappings = true,
-    callback = function(template_name)
+    callback = function(template_name_or_entry)
+      local template_name = type(template_name_or_entry) == "table" and template_name_or_entry.filename or template_name_or_entry
       if title == nil or title == "" then
         -- Must use pcall in case of KeyboardInterrupt
         -- We cannot place `title` where `safe_title` is because it would be redeclaring it
