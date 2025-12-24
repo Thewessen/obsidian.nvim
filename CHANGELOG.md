@@ -3,9 +3,69 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with respect to the public API, which currently includes the installation steps, dependencies, configuration, key mappings, commands, and other plugin functionality. At the moment this does _not_ include the Lua `Client` API, although in the future it will once that API stabilizes.
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with respect to the public API, which currently includes the installation steps, dependencies, configuration, key mappings, commands, and other plugin functionality.
 
 ## Unreleased
+
+### Fixed
+
+- Completions now work.
+
+## [v3.14.8](https://github.com/obsidian-nvim/obsidian.nvim/releases/tag/v3.14.8) - 2025-12-17
+
+### Added
+
+- A new confirm option to choose template when creating note from link.
+- Minimal support for quarto.
+
+### Changed
+
+- Further refactored util module to keep it clean.
+- `Note` class no longer carry `title` field.
+
+### Fixed
+
+- Frontmatter will not be updated on save if there's a yaml syntax error.
+- Always decode link locations for goto definition so encoded header and block will work.
+
+### Removed
+
+- Template substitution for `{{title}}` no longer works.
+
+## [v3.14.7](https://github.com/obsidian-nvim/obsidian.nvim/releases/tag/v3.14.7) - 2025-12-07
+
+### Added
+
+### Changed
+
+- `references` can find tag references.
+- `references` will resolve and follow `[[#^block]]` and `[block](#^block)` links.
+- `references` will resolve and follow `[[#header]]` and `[header](#header)` links.
+- Refactor `save_clipboard_image` for x11/tty display server to use `run_job` instead of `os.execute`
+- Refactor `paste_img` and `img_paste` functions to return and handle img type as a string instead of boolean
+- Expand `paste_img` functionality to support the following formats for Linux systems:
+  - image/jpeg
+  - image/png
+  - image/avif
+  - image/webp
+  - image/bmp
+  - image/gif
+
+### Fixed
+
+- `fzf` template picker fix.
+- relaxed the condition to trigger folds in `smart_action`.
+- Fixed visual selection corrupting multibyte UTF-8 characters (Cyrillic, CJK, emoji, etc.) in commands like `:Obsidian link_new` and `:Obsidian extract_note`. The fix uses LSP TextEdit with proper UTF-8 byte offsets, enabling future code actions preview support.
+- `rename` now correctly updates all backlinks across files (#476):
+  - Fixed pattern matching for filenames with special characters (`.`, `-`, etc.)
+  - Fixed handling of multiple links on the same line
+  - Fixed renaming notes with non-ASCII characters (Cyrillic, CJK, etc.) corrupting links
+  - Preserves `.md` suffix in markdown links, omits in wiki links
+- `follow_link` no longer shows duplicate entries when multiple LSP clients return the same file.
+- `link_new` and `extract_note` now auto-save the parent file so backlinks are immediately discoverable.
+- LSP server's handlers will properly return boolean for other plugin to check if request is successful
+
+## [v3.14.6](https://github.com/obsidian-nvim/obsidian.nvim/releases/tag/v3.14.6) - 2025-11-23
 
 ### Added
 

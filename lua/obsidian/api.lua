@@ -31,6 +31,15 @@ M.dir = function(dir)
     end)
 end
 
+-- find workspaces of a path
+---@param path string
+---@return obsidian.Workspace
+M.find_workspace = function(path)
+  return vim.iter(Obsidian.workspaces):find(function(ws)
+    return M.path_is_note(path, ws)
+  end)
+end
+
 --- Get the templates folder.
 ---
 ---@param workspace obsidian.Workspace?
@@ -72,8 +81,11 @@ M.path_is_note = function(path, workspace)
     return false
   end
 
-  -- Notes have to be markdown file.
-  if path.suffix ~= ".md" then
+  -- Check file extension instead of vim.filetype.match to avoid fast event
+  -- context issues. vim.filetype.match calls getenv() which is not allowed in
+  -- completion context.
+  local extension = tostring(path):match "%.([^%.]+)$"
+  if not vim.list_contains({ "md", "markdown", "qmd" }, extension) then
     return false
   end
 
@@ -160,10 +172,36 @@ M.cursor_heading = function()
   return util.parse_header(vim.api.nvim_get_current_line())
 end
 
+---Check if a string is a checkbox list item
+---
+---Supported checboox lists:
+--- - [ ] foo
+--- - [x] foo
+--- + [x] foo
+--- * [ ] foo
+--- 1. [ ] foo
+--- 1) [ ] foo
+---
+---@param s string
+---@return boolean
+local is_checkbox = function(s)
+  -- - [ ] and * [ ] and + [ ]
+  if string.match(s, "%s*[-+*]%s+%[.%]") ~= nil then
+    return true
+  end
+  -- 1. [ ] and 1) [ ]
+  if string.match(s, "%s*%d+[%.%)]%s+%[.%]") ~= nil then
+    return true
+  end
+  return false
+end
+
+M._is_checkbox = is_checkbox
+
 --- Whether there is a checkbox under the cursor
 ---@return boolean
 M.cursor_checkbox = function()
-  return util.is_checkbox(vim.api.nvim_get_current_line())
+  return is_checkbox(vim.api.nvim_get_current_line())
 end
 
 ------------------
@@ -307,28 +345,50 @@ M.get_visual_selection = function(opts)
   -- for some odd reason. So change that to what they should be here. See ':h getpos' for more info.
   local maxcol = vim.api.nvim_get_vvar "maxcol"
   if cscol == maxcol then
-    cscol = string.len(lines[1])
+    cscol = vim.fn.strlen(lines[1])
   end
   if cecol == maxcol then
-    cecol = string.len(lines[#lines])
+    cecol = vim.fn.strlen(lines[#lines])
   end
 
-  ---@type string
-  local selection
-  local n = #lines
-  if n <= 0 then
-    selection = ""
-  elseif n == 1 then
-    selection = string.sub(lines[1], cscol, cecol)
-  elseif n == 2 then
-    selection = string.sub(lines[1], cscol) .. "\n" .. string.sub(lines[n], 1, cecol)
-  else
-    selection = string.sub(lines[1], cscol)
-      .. "\n"
-      .. table.concat(lines, "\n", 2, n - 1)
-      .. "\n"
-      .. string.sub(lines[n], 1, cecol)
+  -- Use nvim_buf_get_text which properly handles UTF-8 byte positions
+  -- getpos() returns byte-indexed positions (1-indexed)
+  -- Visual selection is inclusive, so cecol points to the last selected byte
+  -- But if that byte is the start of a multi-byte UTF-8 character, we need all its bytes
+  local bufnr = vim.api.nvim_get_current_buf()
+
+  local line = vim.api.nvim_buf_get_lines(bufnr, cerow - 1, cerow, false)[1]
+
+  -- Calculate the end position for text extraction (needs to account for UTF-8)
+  local end_col_for_extraction = cecol
+  if line and cecol <= #line then
+    local byte = line:byte(cecol)
+    if byte then
+      -- Determine UTF-8 character byte length
+      local char_bytes = 1
+      if byte >= 240 then -- 11110xxx: 4-byte char
+        char_bytes = 4
+      elseif byte >= 224 then -- 1110xxxx: 3-byte char
+        char_bytes = 3
+      elseif byte >= 192 then -- 110xxxxx: 2-byte char
+        char_bytes = 2
+        -- else: 0xxxxxxx (1-byte) or 10xxxxxx (continuation byte, shouldn't happen)
+      end
+      -- Move end position to point AFTER the last byte of this character (exclusive end)
+      end_col_for_extraction = cecol + char_bytes
+    end
   end
+
+  local selection_lines = vim.api.nvim_buf_get_text(
+    bufnr,
+    csrow - 1, -- start row (convert to 0-indexed)
+    cscol - 1, -- start col in bytes (convert to 0-indexed)
+    cerow - 1, -- end row (convert to 0-indexed)
+    end_col_for_extraction - 1, -- end col: exclusive, convert to 0-indexed
+    {}
+  )
+
+  local selection = table.concat(selection_lines, "\n")
 
   return {
     lines = lines,
@@ -462,7 +522,7 @@ end
 ---@param prompt string
 ---
 ---@return boolean
-M.confirm = function(prompt)
+M._confirm = function(prompt)
   if not vim.endswith(util.rstrip_whitespace(prompt), "[Y/n]") then
     prompt = util.rstrip_whitespace(prompt) .. " [Y/n] "
   end
@@ -478,6 +538,27 @@ M.confirm = function(prompt)
     return true
   else
     return false
+  end
+end
+
+M.confirm = function(prompt, choices)
+  choices = choices or "&Yes\n&No"
+  local choices_tbl = vim.split(choices, "\n")
+  choices_tbl = vim.tbl_map(function(choice)
+    return choice:gsub("&", "")
+  end, choices_tbl)
+
+  local choice_idx = vim.fn.confirm(prompt, choices)
+  local user_choice = choices_tbl[choice_idx]
+  if not user_choice then
+    return nil
+  end
+  if user_choice == "Yes" then
+    return true
+  elseif user_choice == "No" then
+    return false
+  else
+    return user_choice
   end
 end
 
@@ -610,11 +691,9 @@ M.nav_link = function(direction)
 end
 
 local function has_markdown_folding()
-  if vim.wo.foldmethod == "expr" and vim.wo.foldexpr == "v:lua.vim.treesitter.foldexpr()" then
+  if vim.g.markdown_folding == 1 then
     return true
-  elseif vim.g.markdown_folding == 1 then
-    return true
-  elseif vim.wo.foldmethod == "expr" and vim.wo.foldexpr == "MarkdownFold()" then
+  elseif vim.wo.foldmethod == "expr" then
     return true
   end
   return false
@@ -630,7 +709,7 @@ M.smart_action = function()
     return legacy and "<cmd>ObsidianFollowLink<cr>" or "<cmd>Obsidian follow_link<cr>"
   elseif M.cursor_tag() then
     return legacy and "<cmd>ObsidianTags<cr>" or "<cmd>Obsidian tags<cr>"
-  elseif M.cursor_heading() and has_markdown_folding() then
+  elseif has_markdown_folding() and M.cursor_heading() then
     return "za"
   elseif M.cursor_checkbox() or Obsidian.opts.checkbox.create_new then
     return legacy and "<cmd>ObsidianToggleCheckbox<cr>" or "<cmd>Obsidian toggle_checkbox<cr>"
@@ -663,7 +742,7 @@ M.toggle_checkbox = function(states, line_num)
 
   local checkboxes = states or { " ", "x" }
 
-  if util.is_checkbox(line) then
+  if is_checkbox(line) then
     for i, check_char in ipairs(checkboxes) do
       if string.match(line, "^.* %[" .. vim.pesc(check_char) .. "%].*") then
         i = i % #checkboxes
@@ -720,7 +799,7 @@ M.set_checkbox = function(state)
 
   local cur_line = vim.api.nvim_get_current_line()
 
-  if util.is_checkbox(cur_line) then
+  if is_checkbox(cur_line) then
     if string.match(cur_line, "^.* %[.%].*") then
       cur_line = string.gsub(cur_line, "%[.%]", "[" .. state .. "]", 1)
     end
@@ -739,33 +818,86 @@ M.set_checkbox = function(state)
   vim.api.nvim_buf_set_lines(0, line_num - 1, line_num, true, { cur_line })
 end
 
-local has_nvim_0_12 = (vim.fn.has "nvim-0.12.0" == 1)
+--- Calculate the byte position after a UTF-8 character at the given byte position.
+--- This is needed because visual selection cecol points to the start byte of the last
+--- selected character, but we need the position after the full character.
+---
+---@param line string The line content
+---@param byte_pos integer The 1-indexed byte position of the character start
+---@return integer The 1-indexed byte position after the character (exclusive end)
+local function get_utf8_char_end(line, byte_pos)
+  if not line or byte_pos > #line then
+    return byte_pos
+  end
+  local byte = line:byte(byte_pos)
+  if not byte then
+    return byte_pos
+  end
+  -- Determine UTF-8 character byte length from lead byte
+  local char_bytes = 1
+  if byte >= 240 then -- 11110xxx: 4-byte char
+    char_bytes = 4
+  elseif byte >= 224 then -- 1110xxxx: 3-byte char
+    char_bytes = 3
+  elseif byte >= 192 then -- 110xxxxx: 2-byte char
+    char_bytes = 2
+  end
+  return byte_pos + char_bytes
+end
 
----@param viz obsidian.selection
----@param new_text string
-local function replace_selection(viz, new_text)
-  local edit = {
-    documentChanges = {
+local has_nvim_0_12 = vim.fn.has "nvim-0.12.0" == 1
+
+--- Create an LSP TextEdit from a visual selection.
+--- The edit uses UTF-8 byte offsets (matching our LSP server's offset_encoding).
+---
+---@param viz obsidian.selection The visual selection
+---@param new_text string The replacement text
+---@param bufnr integer? Buffer number (defaults to current buffer)
+---@return lsp.TextDocumentEdit
+local function make_text_edit(viz, new_text, bufnr)
+  bufnr = bufnr or vim.api.nvim_get_current_buf()
+  local line = vim.api.nvim_buf_get_lines(bufnr, viz.cerow - 1, viz.cerow, false)[1]
+
+  -- Calculate the exclusive end position (byte after the last selected character)
+  local end_col = get_utf8_char_end(line, viz.cecol)
+
+  return {
+    textDocument = {
+      uri = vim.uri_from_fname(vim.api.nvim_buf_get_name(bufnr)),
+      version = has_nvim_0_12 and vim.NIL or nil,
+    },
+    edits = {
       {
-        textDocument = {
-          uri = vim.uri_from_fname(vim.api.nvim_buf_get_name(0)),
-          version = has_nvim_0_12 and vim.NIL or nil,
+        range = {
+          -- LSP positions are 0-indexed
+          start = { line = viz.csrow - 1, character = viz.cscol - 1 },
+          ["end"] = { line = viz.cerow - 1, character = end_col - 1 },
         },
-        edits = {
-          {
-            range = {
-              start = { line = viz.csrow - 1, character = viz.cscol - 1 },
-              ["end"] = { line = viz.cerow - 1, character = viz.cecol },
-            },
-            newText = new_text,
-          },
-        },
+        newText = new_text,
       },
     },
   }
+end
 
-  vim.lsp.util.apply_workspace_edit(edit, "utf-8")
-  require("obsidian.ui").update(0)
+--- Replace the visual selection with new text.
+--- Returns the text edit that was (or would be) applied.
+---
+---@param viz obsidian.selection
+---@param new_text string
+---@param opts { apply: boolean? }? Options. apply defaults to true.
+---@return lsp.TextDocumentEdit
+local function replace_selection(viz, new_text, opts)
+  opts = opts or {}
+  local apply = opts.apply ~= false -- default to true
+
+  local text_edit = make_text_edit(viz, new_text)
+
+  if apply then
+    vim.lsp.util.apply_workspace_edit({ documentChanges = { text_edit } }, "utf-8")
+    require("obsidian.ui").update(0)
+  end
+
+  return text_edit
 end
 
 M.link = function()
@@ -805,8 +937,11 @@ M.link_new = function(label)
     label = viz.selection
   end
 
-  local note = require("obsidian.note").create { title = label }
+  local note = require("obsidian.note").create { id = label }
   replace_selection(viz, note:format_link { label = label })
+
+  -- Save file so backlinks search (ripgrep) can find the new link
+  vim.cmd "silent! write"
 end
 
 ---Extract the selected text into a new note
@@ -835,15 +970,78 @@ M.extract_note = function(label)
   end
 
   -- create the new note.
-  local note = require("obsidian.note").create { title = label }
+  local note = require("obsidian.note").create { id = label }
 
   -- replace selection with link to new note
   local link = note:format_link()
   replace_selection(viz, link)
 
+  -- Save file so backlinks search (ripgrep) can find the new link
+  vim.cmd "silent! write"
+
   -- add the selected text to the end of the new note
   note:open { sync = true }
   vim.api.nvim_buf_set_lines(0, -1, -1, false, content)
+end
+
+---@param id string|?
+---@param template string|?
+---@param callback fun(note: obsidian.Note)|?
+M.new_from_template = function(id, template, callback)
+  local Note = require "obsidian.note"
+
+  local templates_dir = M.templates_dir()
+  if not templates_dir then
+    return log.err "Templates folder is not defined or does not exist"
+  end
+
+  if id ~= nil and template ~= nil then
+    local note = Note.create {
+      id = id,
+      template = template,
+      should_write = true,
+    }
+    if callback then
+      callback(note)
+    else
+      note:open { sync = true }
+    end
+    return
+  end
+
+  Obsidian.picker.find_files {
+    prompt_title = "Templates",
+    dir = templates_dir,
+    no_default_mappings = true,
+    callback = function(template_name)
+      if id == nil or id == "" then
+        -- Must use pcall in case of KeyboardInterrupt
+        -- We cannot place `title` where `safe_title` is because it would be redeclaring it
+        local success, safe_title = pcall(util.input, "Enter title or path (optional): ", { completion = "file" })
+        id = safe_title
+        if not success or not safe_title then
+          log.warn "Aborted"
+          return
+        elseif safe_title == "" then
+          id = nil
+        end
+      end
+
+      if template_name == nil or template_name == "" then
+        log.warn "Aborted"
+        return
+      end
+
+      ---@type obsidian.Note
+      local note = Note.create { title = id, template = template_name, should_write = true }
+
+      if callback then
+        callback(note)
+      else
+        note:open { sync = false } -- TODO:??
+      end
+    end,
+  }
 end
 
 return M

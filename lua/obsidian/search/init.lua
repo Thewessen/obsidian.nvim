@@ -500,7 +500,7 @@ M.resolve_note = function(query, opts)
       -- TODO: use vim.fn.fuzzymatch
       -- Fall back to fuzzy match.
       for _, ref_id in ipairs(reference_ids) do
-        if util.string_contains(ref_id, query_lwr) then
+        if string.find(ref_id, query_lwr, 1, true) ~= nil then
           table.insert(fuzzy_matches, note)
           break
         end
@@ -615,6 +615,51 @@ end
 
 M._build_backlink_search_term = build_backlink_search_term
 
+---@param term string
+local function build_in_note_search_term(term)
+  local terms = {}
+
+  if vim.startswith(term, "#") then
+    term = term:sub(2) -- NOTE: should be done in standardize_anchor
+  end
+
+  -- Wiki links with block.
+  terms[#terms + 1] = string.format("[[#%s", term)
+  -- Markdown link with block.
+  terms[#terms + 1] = string.format("](#%s", term)
+  -- Markdown link with block and is relative to root.
+  terms[#terms + 1] = string.format("](/#%s", term)
+  terms[#terms + 1] = string.format("](./#%s", term)
+
+  return terms
+end
+
+---@param note obsidian.Note
+---@return obsidian.BacklinkMatch[]
+local function get_in_note_backlink(note, term)
+  local matches = {}
+
+  if not term then
+    return matches
+  end
+
+  local patterns = build_in_note_search_term(term)
+
+  for lnum, line in ipairs(note.contents) do
+    for _, pat in ipairs(patterns) do
+      if string.find(line, pat, 1, true) ~= nil then
+        matches[#matches + 1] = {
+          path = tostring(note.path),
+          line = lnum,
+          start = 0,
+          ["end"] = 0,
+        }
+      end
+    end
+  end
+  return matches
+end
+
 ---@class obsidian.BacklinkMatch
 ---
 ---@field path string|obsidian.Path The path to the note where the backlinks were found.
@@ -639,6 +684,9 @@ M.find_backlinks_async = function(note, callback, opts)
   end
   ---@type obsidian.BacklinkMatch[]
   local results = {}
+
+  vim.list_extend(results, get_in_note_backlink(note, block or anchor))
+
   ---@param match MatchData
   local _on_match = function(match)
     local path = Path.new(match.path.text):resolve { strict = true }
@@ -869,6 +917,19 @@ M.find_tags_async = function(term, callback, opts)
         end
       end
     end
+
+    -- check for tags in frontmatter
+    if n_matches == 0 and note.tags ~= nil and (vim.startswith(line, "tags:") or string.match(line, "%s*- ")) then
+      for _, tag in ipairs(note.tags) do
+        tag = tostring(tag)
+        for _, t in ipairs(terms) do
+          if string.len(t) == 0 or string.find(tag, t, 1, true) ~= nil then
+            add_match(tag, path, note, match_data.line_number, line)
+          end
+        end
+      end
+    end
+
     -- end)
   end
 

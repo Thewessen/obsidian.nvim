@@ -16,10 +16,12 @@ lsp.start = function(buf)
     cmd = function()
       return {
         request = function(method, ...)
-          handlers[method](...)
+          local ok = pcall(handlers[method], ...)
+          return ok
         end,
         notify = function(method, ...)
-          handlers[method](...)
+          local ok = pcall(handlers[method], ...)
+          return ok
         end,
         is_closing = function() end,
         terminate = function() end,

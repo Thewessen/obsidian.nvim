@@ -403,6 +403,33 @@
       "contributions": [
         "doc"
       ]
+    },
+    {
+      "login": "Meowtomata",
+      "name": "Anatoliy",
+      "avatar_url": "https://avatars.githubusercontent.com/u/95190660?v=4",
+      "profile": "https://github.com/Meowtomata",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "acidsugarx",
+      "name": "acidsugarx",
+      "avatar_url": "https://avatars.githubusercontent.com/u/58903233?v=4",
+      "profile": "https://github.com/acidsugarx",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "jpmelos",
+      "name": "João Sampaio",
+      "avatar_url": "https://avatars.githubusercontent.com/u/407407?v=4",
+      "profile": "https://jpmelos.com",
+      "contributions": [
+        "code"
+      ]
     }
   ]
 }
